@@ -27,20 +27,30 @@ jobs:
         run: |
           echo "Calling Azure OpenAI to generate GitHub Actions YAML..."
 
-          body=$(jq -n --arg dsl "${{ env.DSL_CONTENT }}" '
-          {
-            "messages": [
-              {"role": "system", "content": "You are a DevOps expert converting CI/CD scripts."},
-              {"role": "user", "content": "Convert the following TeamCity Kotlin DSL build script into an equivalent GitHub Actions YAML workflow file. Script:\n---\n" + $dsl + "\n---\nEnsure all steps are correctly migrated."}
-            ],
-            "temperature": 0.2,
-            "max_tokens": 2000
-          }')
+          # Read the DSL content into a variable and escape it safely
+          dsl=$(cat teamcity-dsl-code/id10BuildPackage.kt)
 
+          # Now build the full prompt
+          prompt="Convert the following TeamCity Kotlin DSL build script into an equivalent GitHub Actions YAML workflow file.\n---\n$dsl\n---\nEnsure all steps are correctly migrated."
+
+          # Build the JSON body cleanly
+          body=$(jq -n \
+            --arg prompt "$prompt" \
+            '{
+              "messages": [
+                { "role": "system", "content": "You are a DevOps expert converting CI/CD scripts." },
+                { "role": "user", "content": $prompt }
+              ],
+              "temperature": 0.2,
+              "max_tokens": 2000
+            }')
+
+          # Send request to Azure OpenAI
           curl -s -X POST "$AZURE_OPENAI_ENDPOINT/openai/deployments/gpt-4/chat/completions?api-version=2023-12-01-preview" \
             -H "Content-Type: application/json" \
             -H "api-key: $AZURE_OPENAI_KEY" \
             -d "$body" > response.json
+
 
       - name: Extract and Save Generated YAML
         run: |
