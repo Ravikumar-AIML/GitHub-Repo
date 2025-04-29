@@ -1,7 +1,7 @@
 name: Generate GHA YAML from TeamCity DSL
 
 on:
-  workflow_dispatch:   # Allows manual trigger
+  workflow_dispatch:   # Manual trigger
 
 jobs:
   convert:
@@ -14,28 +14,25 @@ jobs:
       - name: Read DSL file content
         id: read_dsl
         run: |
-          echo "Reading the DSL Kotlin file..."
-          content=$(cat teamcity-dsl-code/id10BuildPackage.kt)
-          echo "dsl_content<<EOF" >> $GITHUB_ENV
-          echo "$content" >> $GITHUB_ENV
+          echo "Reading DSL file..."
+          dsl_content=$(cat teamcity-dsl-code/id10BuildPackage.kt | sed 's/"/\\"/g' | sed "s/'/\\'/g")
+          echo "DSL_CONTENT<<EOF" >> $GITHUB_ENV
+          echo "$dsl_content" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       - name: Generate GitHub Actions YAML via Azure OpenAI
-        id: generate_yaml
+        env:
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
         run: |
           echo "Calling Azure OpenAI to generate GitHub Actions YAML..."
 
-          prompt=$(cat <<EOF
-Convert the following TeamCity Kotlin DSL build script into an equivalent GitHub Actions YAML workflow file. Ensure the structure is correct, including `on:`, `jobs:`, `steps:`. The script:
----
-${{ env.dsl_content }}
----
-EOF
-)
-
-          body=$(jq -n --arg prompt "$prompt" '{
-            "messages": [{"role": "system", "content": "You are a DevOps expert converting CI/CD scripts."},
-                         {"role": "user", "content": $prompt}],
+          body=$(jq -n --arg dsl "${{ env.DSL_CONTENT }}" '
+          {
+            "messages": [
+              {"role": "system", "content": "You are a DevOps expert converting CI/CD scripts."},
+              {"role": "user", "content": "Convert the following TeamCity Kotlin DSL build script into an equivalent GitHub Actions YAML workflow file. Script:\n---\n" + $dsl + "\n---\nEnsure all steps are correctly migrated."}
+            ],
             "temperature": 0.2,
             "max_tokens": 2000
           }')
@@ -45,7 +42,7 @@ EOF
             -H "api-key: $AZURE_OPENAI_KEY" \
             -d "$body" > response.json
 
-      - name: Extract Generated YAML
+      - name: Extract and Save Generated YAML
         run: |
           cat response.json | jq -r '.choices[0].message.content' > generated-github-actions.yml
 
